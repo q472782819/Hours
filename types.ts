@@ -15,17 +15,16 @@ export interface TodoItem {
   completed: boolean;
 }
 
-export interface TimeRange {
+export interface TimeBlock {
+  id: string;
+  name: string;
   start: number; // 0-23
   end: number;   // 0-23
   enabled: boolean;
+  color?: string; // Optional for UI decoration
 }
 
-export interface DayConfig {
-  sleep1: TimeRange; // 第一段睡眠 (e.g. 晚上)
-  sleep2: TimeRange; // 第二段睡眠 (e.g. 午休)
-  out: TimeRange;    // 外出/通勤
-}
+export type DayConfig = TimeBlock[];
 
 export interface DayData {
   log: DayLog;
