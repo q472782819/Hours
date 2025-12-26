@@ -1,0 +1,5 @@
+{
+  "name": "WorkFlow Tracker",
+  "description": "An hourly work status tracker to monitor focus, normal work, and slacking time with AI-powered insights.",
+  "requestFramePermissions": []
+}
