@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { format, addDays, subDays } from 'date-fns';
-import { zhCN } from 'date-fns/locale';
+import { format, addDays } from 'date-fns';
 import { AppData, TabView, WorkStatus, DayLog, DayData, TodoItem, DayConfig, TimeBlock } from './types';
 import { Tracker } from './components/Tracker';
 import { Statistics } from './components/Statistics';
-import { ChevronLeft, ChevronRight, LayoutList, PieChart as PieChartIcon, Download, CheckSquare, Square, Settings2, ZoomIn, ZoomOut, Plus, Trash2, Clock, Coffee } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutList, PieChart as PieChartIcon, Download, CheckSquare, Square, Settings2, ZoomIn, ZoomOut, Plus, Trash2, Clock, Coffee, BookOpen, Cloud, User, Lock, UploadCloud, DownloadCloud, X, RefreshCw, PenLine, Save } from 'lucide-react';
 
 const STORAGE_KEY = 'workflow_app_data_v3';
 
@@ -20,12 +19,23 @@ const DEFAULT_CONFIG: DayConfig = [
   { id: 'out', name: '通勤/外出', start: 18, end: 19, enabled: true, color: 'text-emerald-400' }
 ];
 
+const WEEK_DAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
 const App: React.FC = () => {
   // State
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [data, setData] = useState<AppData>({});
   const [activeTab, setActiveTab] = useState<TabView>('TRACKER'); // For mobile only
   const [uiScale, setUiScale] = useState<number>(1.0); // 0.8 to 1.4
+  
+  // Modal States
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [showJournalModal, setShowJournalModal] = useState(false);
+  
+  // Sync State
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [account, setAccount] = useState({ username: '', token: '' });
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   // Load data on mount with migration logic
   useEffect(() => {
@@ -39,7 +49,7 @@ const App: React.FC = () => {
           const item = parsed[date];
           let config: DayConfig = [];
 
-          // Migration Logic
+          // Migration Logic for Config
           if (!item.config) {
             config = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
           } else if (Array.isArray(item.config)) {
@@ -60,7 +70,8 @@ const App: React.FC = () => {
           migratedData[date] = {
             log: item.log || {},
             todos: item.todos || JSON.parse(JSON.stringify(INITIAL_TODOS)),
-            config: config
+            config: config,
+            journal: item.journal || '' // Add default journal
           };
         });
         
@@ -68,6 +79,13 @@ const App: React.FC = () => {
       } catch (e) {
         console.error("Failed to parse local storage", e);
       }
+    }
+    
+    // Check if user "logged in" previously (Simulated)
+    const savedAccount = localStorage.getItem('workflow_account');
+    if (savedAccount) {
+        setAccount(JSON.parse(savedAccount));
+        setIsLoggedIn(true);
     }
   }, []);
 
@@ -84,12 +102,14 @@ const App: React.FC = () => {
   const currentDayData: DayData = data[dateStr] || { 
     log: {}, 
     todos: JSON.parse(JSON.stringify(INITIAL_TODOS)),
-    config: JSON.parse(JSON.stringify(DEFAULT_CONFIG))
+    config: JSON.parse(JSON.stringify(DEFAULT_CONFIG)),
+    journal: ''
   };
 
   const currentLog = currentDayData.log;
   const currentTodos = currentDayData.todos;
   const currentConfig = currentDayData.config;
+  const currentJournal = currentDayData.journal;
 
   // --- Handlers ---
 
@@ -111,6 +131,13 @@ const App: React.FC = () => {
     setData(prev => ({
       ...prev,
       [dateStr]: { ...currentDayData, todos: newTodos }
+    }));
+  };
+  
+  const handleUpdateJournal = (text: string) => {
+    setData(prev => ({
+      ...prev,
+      [dateStr]: { ...currentDayData, journal: text }
     }));
   };
 
@@ -151,7 +178,7 @@ const App: React.FC = () => {
   };
 
   const navigateDate = (direction: 'prev' | 'next') => {
-    setCurrentDate(curr => direction === 'prev' ? subDays(curr, 1) : addDays(curr, 1));
+    setCurrentDate(curr => addDays(curr, direction === 'prev' ? -1 : 1));
   };
 
   const handleExportData = () => {
@@ -165,6 +192,33 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+  
+  // --- Sync Handlers (Simulated) ---
+  const handleLogin = (e: React.FormEvent) => {
+      e.preventDefault();
+      // Simulate API call
+      setSyncState('syncing');
+      setTimeout(() => {
+          setIsLoggedIn(true);
+          setSyncState('idle');
+          localStorage.setItem('workflow_account', JSON.stringify(account));
+      }, 800);
+  };
+
+  const handleSync = () => {
+      setSyncState('syncing');
+      // Simulate Cloud Sync
+      setTimeout(() => {
+          setSyncState('success');
+          setTimeout(() => setSyncState('idle'), 2000);
+      }, 1500);
+  };
+  
+  const handleLogout = () => {
+      setIsLoggedIn(false);
+      setAccount({ username: '', token: '' });
+      localStorage.removeItem('workflow_account');
   };
 
   // --- Scale Handlers ---
@@ -218,7 +272,6 @@ const App: React.FC = () => {
             </div>
             
             <div className="flex items-center gap-2">
-                {/* Delete Button (Only show on hover/group-hover) */}
                 <button 
                   onClick={() => handleRemoveConfigBlock(block.id)}
                   className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -291,16 +344,32 @@ const App: React.FC = () => {
                 <div className="flex items-center bg-slate-50 p-1 rounded-lg border border-slate-200">
                   <button onClick={() => navigateDate('prev')} className="p-1 hover:text-indigo-600"><ChevronLeft size={16}/></button>
                   <div className="px-3 flex items-baseline gap-1">
-                    <span className="font-bold text-slate-700 text-sm">{format(currentDate, 'MM月dd日', { locale: zhCN })}</span>
-                    <span className="text-xs text-slate-400 font-medium">{format(currentDate, 'EEEE', { locale: zhCN })}</span>
+                    <span className="font-bold text-slate-700 text-sm">{format(currentDate, 'MM月dd日')}</span>
+                    <span className="text-xs text-slate-400 font-medium">{WEEK_DAYS[currentDate.getDay()]}</span>
                   </div>
                   <button onClick={() => navigateDate('next')} className="p-1 hover:text-indigo-600"><ChevronRight size={16}/></button>
                 </div>
              </div>
              
              <div className="flex items-center gap-3">
+                 {/* Journal Button - New! */}
+                 <button 
+                    onClick={() => setShowJournalModal(true)} 
+                    className="flex items-center gap-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700 px-3 py-1.5 rounded-lg border border-indigo-100 transition-all text-xs font-medium"
+                 >
+                     <PenLine size={16} />
+                     <span className="hidden sm:inline">写日记</span>
+                 </button>
+
+                 <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+
+                 {/* Sync Button */}
+                 <button onClick={() => setShowSyncModal(true)} className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-all">
+                     <Cloud size={18} />
+                 </button>
+
                  {/* Zoom Controls */}
-                 <div className="flex items-center gap-1 bg-slate-50 rounded-lg border border-slate-200 p-1">
+                 <div className="flex items-center gap-1 bg-slate-50 rounded-lg border border-slate-200 p-1 hidden sm:flex">
                     <button onClick={() => adjustScale(-0.1)} className="p-1 text-slate-400 hover:text-indigo-600 disabled:opacity-30" disabled={uiScale <= 0.8}>
                         <ZoomOut size={16} />
                     </button>
@@ -341,8 +410,8 @@ const App: React.FC = () => {
             {/* COLUMN 3: SETTINGS & TODO */}
             <div className={`${colSettingsClass} flex flex-col h-full bg-white overflow-hidden ${activeTab === 'TRACKER' ? 'hidden md:flex' : 'flex'}`}>
                 
-                {/* RIGHT TOP: Time Settings */}
-                <div className="flex-none border-b border-slate-100 bg-slate-50/50 flex flex-col" style={{ padding: `${16 * uiScale}px`, maxHeight: '50%' }}>
+                {/* 1. Time Settings (Fixed max height roughly) */}
+                <div className="flex-none border-b border-slate-100 bg-slate-50/50 flex flex-col min-h-0" style={{ padding: `${16 * uiScale}px`, height: '45%' }}>
                     <div className="flex items-center justify-between mb-3 flex-shrink-0">
                         <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
                             <Coffee size={16 * uiScale} className="text-indigo-500" />
@@ -357,14 +426,14 @@ const App: React.FC = () => {
                         </button>
                     </div>
 
-                    <div className="overflow-y-auto pr-1">
+                    <div className="overflow-y-auto pr-1 flex-1">
                         <div className="grid grid-cols-1 gap-2" style={{ gridTemplateColumns: isLargeScale ? 'repeat(auto-fill, minmax(200px, 1fr))' : '1fr' }}>
                             {currentConfig.map(block => renderConfigRow(block))}
                         </div>
                     </div>
                 </div>
 
-                {/* RIGHT BOTTOM: Todo List */}
+                {/* 2. Todo List (Flex-1) */}
                 <div className="flex-1 bg-white flex flex-col min-h-0" style={{ padding: `${16 * uiScale}px` }}>
                     <div className="flex items-center justify-between mb-3 flex-shrink-0" style={{ marginBottom: `${12 * uiScale}px` }}>
                         <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
@@ -376,7 +445,6 @@ const App: React.FC = () => {
                         </span>
                     </div>
                     
-                    {/* Items Container - Changed to scrollable standard list */}
                     <div className="flex-1 overflow-y-auto min-h-0 pr-1">
                         <div className="flex flex-col" style={{ gap: `${8 * uiScale}px` }}>
                             {Array.from({ length: 5 }).map((_, idx) => {
@@ -408,7 +476,6 @@ const App: React.FC = () => {
                             })}
                         </div>
                     </div>
-                    
                     <div className="flex-shrink-0 pt-2 border-t border-slate-50 text-center" style={{ marginTop: `${12 * uiScale}px` }}>
                         <span className="text-[10px] text-slate-300">今日事今日毕</span>
                     </div>
@@ -417,6 +484,163 @@ const App: React.FC = () => {
             </div>
 
         </div>
+
+        {/* Journal Modal */}
+        {showJournalModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/20 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 flex-shrink-0">
+                        <div className="flex flex-col">
+                            <h3 className="font-semibold text-slate-800 flex items-center gap-2 text-lg">
+                                <BookOpen size={20} className="text-indigo-500"/> 每日随笔
+                            </h3>
+                            <span className="text-xs text-slate-500 mt-1">{format(currentDate, 'yyyy年MM月dd日')} {WEEK_DAYS[currentDate.getDay()]}</span>
+                        </div>
+                        <button onClick={() => setShowJournalModal(false)} className="text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-lg">
+                            <X size={24} />
+                        </button>
+                    </div>
+                    
+                    <div className="flex-1 p-6 bg-white overflow-hidden flex flex-col">
+                        <textarea
+                            value={currentJournal}
+                            onChange={(e) => handleUpdateJournal(e.target.value)}
+                            placeholder="记录今天的想法、反思、小确幸，或者任何想写下来的东西..."
+                            className="w-full h-full text-base text-slate-700 placeholder:text-slate-300 resize-none outline-none leading-relaxed"
+                            autoFocus
+                        />
+                    </div>
+
+                    <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex justify-end gap-3 flex-shrink-0">
+                        <button 
+                            onClick={() => setShowJournalModal(false)}
+                            className="text-slate-500 hover:text-slate-700 px-4 py-2 text-sm"
+                        >
+                            取消
+                        </button>
+                        <button 
+                            onClick={() => setShowJournalModal(false)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm hover:shadow transition-all"
+                        >
+                            <Save size={16} /> 保存
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Sync Modal */}
+        {showSyncModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/20 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+                            <Cloud size={18} className="text-indigo-500"/> 账号与同步
+                        </h3>
+                        <button onClick={() => setShowSyncModal(false)} className="text-slate-400 hover:text-slate-600">
+                            <X size={20} />
+                        </button>
+                    </div>
+                    
+                    <div className="p-6">
+                        {!isLoggedIn ? (
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <div className="space-y-3">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-slate-500">用户名</label>
+                                        <div className="relative">
+                                            <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input 
+                                                type="text" 
+                                                required
+                                                value={account.username}
+                                                onChange={e => setAccount({...account, username: e.target.value})}
+                                                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                                                placeholder="输入任意用户名"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-slate-500">同步令牌 (Token)</label>
+                                        <div className="relative">
+                                            <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input 
+                                                type="password" 
+                                                required
+                                                value={account.token}
+                                                onChange={e => setAccount({...account, token: e.target.value})}
+                                                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+                                                placeholder="输入任意密码以模拟登录"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                                <button 
+                                    type="submit" 
+                                    disabled={syncState === 'syncing'}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    {syncState === 'syncing' ? <RefreshCw className="animate-spin" size={16} /> : '登录 / 注册'}
+                                </button>
+                                <p className="text-xs text-center text-slate-400 mt-2">
+                                    这只是一个演示界面，点击登录后解锁同步按钮。
+                                </p>
+                            </form>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="bg-indigo-50 rounded-lg p-3 flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-lg">
+                                        {account.username.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="font-medium text-slate-900 truncate">{account.username}</div>
+                                        <div className="text-xs text-indigo-600/70">已连接至云端节点</div>
+                                    </div>
+                                    <button onClick={handleLogout} className="text-xs text-slate-400 hover:text-red-500 underline">退出</button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button 
+                                        onClick={handleSync}
+                                        disabled={syncState === 'syncing'}
+                                        className="flex flex-col items-center justify-center gap-2 p-4 bg-white border border-slate-200 hover:border-indigo-500 hover:bg-slate-50 rounded-xl transition-all group"
+                                    >
+                                        <UploadCloud size={24} className="text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                                        <span className="text-xs font-medium text-slate-600">上传备份</span>
+                                    </button>
+                                    <button 
+                                        onClick={handleSync}
+                                        disabled={syncState === 'syncing'}
+                                        className="flex flex-col items-center justify-center gap-2 p-4 bg-white border border-slate-200 hover:border-indigo-500 hover:bg-slate-50 rounded-xl transition-all group"
+                                    >
+                                        <DownloadCloud size={24} className="text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                                        <span className="text-xs font-medium text-slate-600">恢复数据</span>
+                                    </button>
+                                </div>
+                                
+                                {syncState === 'syncing' && (
+                                    <div className="text-xs text-center text-indigo-500 flex items-center justify-center gap-1.5">
+                                        <RefreshCw size={12} className="animate-spin" /> 正在同步数据...
+                                    </div>
+                                )}
+                                {syncState === 'success' && (
+                                    <div className="text-xs text-center text-emerald-500 font-medium">
+                                        同步成功！数据已安全存储。
+                                    </div>
+                                )}
+                                
+                                <div className="pt-4 border-t border-slate-100 mt-2">
+                                     <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wider">手动备份</h4>
+                                     <button onClick={handleExportData} className="w-full border border-slate-200 text-slate-600 hover:bg-slate-50 py-2 rounded-lg text-xs flex items-center justify-center gap-2 transition-colors">
+                                        <Download size={14} /> 导出 JSON 文件
+                                     </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
 
         {/* Mobile Bottom Navigation */}
         <nav className="bg-white border-t border-slate-200 pb-safe md:hidden absolute bottom-0 left-0 right-0 z-50 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">

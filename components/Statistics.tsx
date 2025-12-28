@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import { Award, AlertCircle, TrendingUp } from 'lucide-react';
-import { format, subDays, parseISO } from 'date-fns';
+import { format, addDays } from 'date-fns';
 
 interface StatisticsProps {
   currentLog: DayLog;
@@ -46,11 +46,14 @@ export const Statistics: React.FC<StatisticsProps> = ({ currentLog, allData, dat
   // Calculate History Stats (Last 7 Days)
   const historyData = useMemo(() => {
     const data = [];
-    const today = parseISO(dateStr);
+    // Manual parsing to avoid parseISO dependency
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const today = new Date(y, m - 1, d);
     
     for (let i = 6; i >= 0; i--) {
-      const d = subDays(today, i);
-      const dStr = format(d, 'yyyy-MM-dd');
+      // Use addDays with negative value instead of subDays
+      const dDate = addDays(today, -i);
+      const dStr = format(dDate, 'yyyy-MM-dd');
       const dayData = allData[dStr];
       const log = dayData ? ('log' in dayData ? dayData.log : (dayData as any)) : {}; 
       
@@ -67,7 +70,7 @@ export const Statistics: React.FC<StatisticsProps> = ({ currentLog, allData, dat
       }
 
       data.push({
-        date: format(d, 'MM/dd'),
+        date: format(dDate, 'MM/dd'),
         '摸鱼': slacking,
         '工作': normal,
         '努力': focused,

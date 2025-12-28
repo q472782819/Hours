@@ -30,6 +30,7 @@ export interface DayData {
   log: DayLog;
   todos: TodoItem[];
   config: DayConfig;
+  journal: string; // New Journal Field
 }
 
 export interface AppData {
